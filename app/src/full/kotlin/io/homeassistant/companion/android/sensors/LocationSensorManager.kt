@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.content.Intent
 import android.location.Location
+import android.location.LocationManager
 import android.os.Build
 import android.os.Looper
 import android.os.PowerManager
@@ -258,6 +259,7 @@ class LocationSensorManager @Inject constructor(
     }
 
     private val ioScope: CoroutineScope = CoroutineScope(Dispatchers.IO + Job())
+    private var nativeLocationManager: LocationManager? = null
 
     fun onReceive(intent: Intent) {
         sensorWorkerScope.launch {
@@ -668,12 +670,15 @@ class LocationSensorManager @Inject constructor(
     }
 
     private fun removeBackgroundUpdateRequests() {
+        Timber.d("Removing background location requests.")
+        val backgroundIntent = getLocationUpdateIntent(false)
         if (fusedLocationProviderClient != null) {
-            Timber.d("Removing background location requests.")
-            val backgroundIntent = getLocationUpdateIntent(false)
             fusedLocationProviderClient?.removeLocationUpdates(backgroundIntent)
-        } else {
-            Timber.d("Cannot remove background location requests. Location provider is not set.")
+        }
+        try {
+            nativeLocationManager?.removeUpdates(backgroundIntent)
+        } catch (e: Exception) {
+            Timber.w(e, "Unable to remove native location updates")
         }
     }
 
@@ -706,10 +711,43 @@ class LocationSensorManager @Inject constructor(
 
         val intent = getLocationUpdateIntent(false)
 
-        fusedLocationProviderClient?.requestLocationUpdates(
-            createLocationRequest(),
-            intent,
-        )
+        // Android platform providers provide a fallback on devices without working Google Play services.
+        try {
+            fusedLocationProviderClient?.requestLocationUpdates(
+                createLocationRequest(),
+                intent,
+            )?.addOnFailureListener { error ->
+                Timber.w(error, "Fused location failed; native providers remain active")
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Fused location unavailable; using native providers")
+        }
+        requestNativeLocationUpdates(intent)
+    }
+
+    @Suppress("MissingPermission")
+    private fun requestNativeLocationUpdates(intent: PendingIntent) {
+        val manager = applicationContext.getSystemService<LocationManager>()
+        if (manager == null) {
+            Timber.w("Android LocationManager is unavailable")
+            return
+        }
+        nativeLocationManager = manager
+        var registered = false
+        listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).forEach { provider ->
+            try {
+                if (manager.isProviderEnabled(provider)) {
+                    manager.requestLocationUpdates(provider, DEFAULT_LOCATION_INTERVAL, 0f, intent)
+                    Timber.i("Registered native location provider: $provider")
+                    registered = true
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "Unable to register native location provider: $provider")
+            }
+        }
+        if (!registered) {
+            Timber.w("No enabled native location providers; check device location settings")
+        }
     }
 
     private suspend fun requestZoneUpdates() {
@@ -749,7 +787,9 @@ class LocationSensorManager @Inject constructor(
         serverIds.forEach {
             lastLocationReceived[it] = System.currentTimeMillis()
         }
-        LocationResult.extractResult(intent)?.lastLocation?.let { location ->
+        val location = LocationResult.extractResult(intent)?.lastLocation
+            ?: intent.getParcelableExtra<Location>(LocationManager.KEY_LOCATION_CHANGED)
+        location?.let { location ->
             val minAccuracy = getNumberSetting(backgroundLocation, SETTING_ACCURACY)
             val trigger =
                 if (intent.action == ACTION_PROCESS_HIGH_ACCURACY_LOCATION) {
