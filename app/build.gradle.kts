@@ -54,6 +54,6 @@ dependencies {
     // Most of the dependencies are coming from the convention plugin to avoid duplication with `:automotive` module.
     "fullImplementation"(libs.car.projected)
     // AMap Location SDK for mainland-China devices without Google Play Services.
-    "fullImplementation"("com.amap.api:location:11.3.300")
+    "fullImplementation"("com.amap.api:location:11.3.000")
     ksp(project(":provides-sensor-processor"))
 }
