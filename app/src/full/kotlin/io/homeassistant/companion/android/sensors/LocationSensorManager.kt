@@ -742,6 +742,7 @@ class LocationSensorManager @Inject constructor(
             // AMap requires its privacy compliance flags before AMapLocationClient is created.
             AMapLocationClient.updatePrivacyShow(applicationContext, true, true)
             AMapLocationClient.updatePrivacyAgree(applicationContext, true)
+            AMapLocationClientOption.setLocationProtocol(AMapLocationClientOption.AMapLocationProtocol.HTTPS)
 
             val client = amapLocationClient ?: AMapLocationClient(applicationContext).also { created ->
                 created.setLocationListener(AMapLocationListener { result ->
@@ -1466,6 +1467,7 @@ class LocationSensorManager @Inject constructor(
         try {
             AMapLocationClient.updatePrivacyShow(applicationContext, true, true)
             AMapLocationClient.updatePrivacyAgree(applicationContext, true)
+            AMapLocationClientOption.setLocationProtocol(AMapLocationClientOption.AMapLocationProtocol.HTTPS)
 
             singleAMapLocationClient?.onDestroy()
             val client = AMapLocationClient(applicationContext)
