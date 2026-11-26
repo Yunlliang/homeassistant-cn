@@ -11,6 +11,7 @@ android {
     defaultConfig {
         manifestPlaceholders["sentryRelease"] = "$applicationId@$versionName"
         manifestPlaceholders["sentryDsn"] = System.getenv("SENTRY_DSN") ?: ""
+        manifestPlaceholders["amapApiKey"] = System.getenv("AMAP_API_KEY") ?: ""
 
         testInstrumentationRunner = "io.homeassistant.companion.android.util.HAAndroidJUnitRunner"
 
@@ -24,6 +25,8 @@ android {
 
     buildTypes {
         debug {
+            // Use the persistent project signing key so the AMap SHA1 remains stable across CI builds.
+            signingConfig = signingConfigs.getByName("release")
             // Required for HWASan wrap.sh to be included uncompressed in the APK
             // See https://developer.android.com/ndk/guides/hwasan
             packaging {
@@ -50,5 +53,7 @@ aboutLibraries {
 dependencies {
     // Most of the dependencies are coming from the convention plugin to avoid duplication with `:automotive` module.
     "fullImplementation"(libs.car.projected)
+    // AMap Location SDK for mainland-China devices without Google Play Services.
+    "fullImplementation"("com.amap.api:location:11.3.300")
     ksp(project(":provides-sensor-processor"))
 }
