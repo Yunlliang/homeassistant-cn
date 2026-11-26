@@ -11,6 +11,10 @@ import android.os.Build
 import android.os.Looper
 import android.os.PowerManager
 import androidx.core.content.getSystemService
+import com.amap.api.location.AMapLocation
+import com.amap.api.location.AMapLocationClient
+import com.amap.api.location.AMapLocationClientOption
+import com.amap.api.location.AMapLocationListener
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingClient
@@ -260,6 +264,8 @@ class LocationSensorManager @Inject constructor(
 
     private val ioScope: CoroutineScope = CoroutineScope(Dispatchers.IO + Job())
     private var nativeLocationManager: LocationManager? = null
+    private var amapLocationClient: AMapLocationClient? = null
+    private var singleAMapLocationClient: AMapLocationClient? = null
 
     fun onReceive(intent: Intent) {
         sensorWorkerScope.launch {
@@ -472,6 +478,7 @@ class LocationSensorManager @Inject constructor(
             mapOf(),
         )
         SensorReceiver.updateAllSensors(applicationContext)
+        requestAMapLocationUpdates(TimeUnit.SECONDS.toMillis(intervalInSeconds.toLong()))
         HighAccuracyLocationService.restartService(applicationContext, intervalInSeconds)
     }
 
@@ -489,6 +496,7 @@ class LocationSensorManager @Inject constructor(
             mapOf(),
         )
         SensorReceiver.updateAllSensors(applicationContext)
+        requestAMapLocationUpdates(TimeUnit.SECONDS.toMillis(intervalInSeconds.toLong()))
         HighAccuracyLocationService.startService(applicationContext, intervalInSeconds)
     }
 
@@ -671,6 +679,7 @@ class LocationSensorManager @Inject constructor(
 
     private fun removeBackgroundUpdateRequests() {
         Timber.d("Removing background location requests.")
+        stopAMapLocationUpdates()
         val backgroundIntent = getLocationUpdateIntent(false)
         if (fusedLocationProviderClient != null) {
             fusedLocationProviderClient?.removeLocationUpdates(backgroundIntent)
@@ -723,6 +732,98 @@ class LocationSensorManager @Inject constructor(
             Timber.w(e, "Fused location unavailable; using native providers")
         }
         requestNativeLocationUpdates(intent)
+        requestAMapLocationUpdates()
+    }
+
+    /** Starts AMap as the China-friendly location provider; it works without Google Play Services. */
+    @Suppress("MissingPermission")
+    private fun requestAMapLocationUpdates(intervalMillis: Long = DEFAULT_LOCATION_INTERVAL) {
+        try {
+            // AMap requires its privacy compliance flags before AMapLocationClient is created.
+            AMapLocationClient.updatePrivacyShow(applicationContext, true, true)
+            AMapLocationClient.updatePrivacyAgree(applicationContext, true)
+
+            val client = amapLocationClient ?: AMapLocationClient(applicationContext).also { created ->
+                created.setLocationListener(AMapLocationListener { result ->
+                    if (result == null) return@AMapLocationListener
+                    if (result.errorCode != 0) {
+                        Timber.w("AMap location failed: code=${result.errorCode}, info=${result.errorInfo}")
+                        return@AMapLocationListener
+                    }
+
+                    val coordinates = if (result.coordType == AMapLocation.COORD_TYPE_GCJ02) {
+                        AMapCoordinateConverter.toWgs84(result.latitude, result.longitude)
+                    } else {
+                        result.latitude to result.longitude
+                    }
+                    val location = Location(result).apply {
+                        latitude = coordinates.first
+                        longitude = coordinates.second
+                    }
+
+                    sensorWorkerScope.launch {
+                        val serverIds = getEnabledServers(backgroundLocation)
+                        val now = System.currentTimeMillis()
+                        serverIds.forEach { lastLocationReceived[it] = now }
+                        val minAccuracy = getNumberSetting(backgroundLocation, SETTING_ACCURACY)
+                        val trigger = if (highAccuracyModeEnabled) {
+                            LocationUpdateTrigger.HIGH_ACCURACY_LOCATION
+                        } else {
+                            LocationUpdateTrigger.BACKGROUND_LOCATION
+                        }
+
+                        if (location.accuracy > minAccuracy) {
+                            Timber.d("AMap location accuracy ${location.accuracy}m is below the required threshold")
+                            logLocationUpdate(
+                                location,
+                                null,
+                                null,
+                                trigger,
+                                LocationHistoryItemResult.SKIPPED_ACCURACY,
+                            )
+                        } else {
+                            Timber.d("Received an AMap location update (accuracy=${location.accuracy}m)")
+                            HighAccuracyLocationService.updateNotificationAddress(applicationContext, location)
+                            serverIds.forEach { serverId ->
+                                sendLocationUpdate(location, serverId, trigger)
+                            }
+                        }
+                    }
+                })
+                amapLocationClient = created
+            }
+
+            client.stopLocation()
+            val option = AMapLocationClientOption().apply {
+                setLocationMode(
+                    if (highAccuracyModeEnabled) {
+                        AMapLocationClientOption.AMapLocationMode.Hight_Accuracy
+                    } else {
+                        AMapLocationClientOption.AMapLocationMode.Battery_Saving
+                    },
+                )
+                setInterval(intervalMillis.coerceAtLeast(5_000L))
+                setOnceLocation(false)
+                setNeedAddress(false)
+            }
+            client.setLocationOption(option)
+            client.startLocation()
+            Timber.i("AMap background location started (interval=${intervalMillis}ms)")
+        } catch (e: Exception) {
+            Timber.e(e, "Unable to start AMap location provider")
+        }
+    }
+
+    private fun stopAMapLocationUpdates() {
+        amapLocationClient?.let { client ->
+            try {
+                client.stopLocation()
+                client.onDestroy()
+            } catch (e: Exception) {
+                Timber.w(e, "Unable to stop AMap location provider cleanly")
+            }
+        }
+        amapLocationClient = null
     }
 
     @Suppress("MissingPermission")
@@ -1355,7 +1456,64 @@ class LocationSensorManager @Inject constructor(
                     Looper.getMainLooper(),
                 )
         } catch (e: Exception) {
-            Timber.e(e, "Failed to get location data for single accurate sensor")
+            Timber.w(e, "Google fused location unavailable; falling back to AMap for single accurate location")
+            requestSingleAMapLocation(minAccuracy)
+        }
+    }
+
+    private fun requestSingleAMapLocation(minAccuracy: Int) {
+        try {
+            AMapLocationClient.updatePrivacyShow(applicationContext, true, true)
+            AMapLocationClient.updatePrivacyAgree(applicationContext, true)
+
+            singleAMapLocationClient?.onDestroy()
+            val client = AMapLocationClient(applicationContext)
+            singleAMapLocationClient = client
+            client.setLocationListener(AMapLocationListener { result ->
+                if (result == null) return@AMapLocationListener
+                if (result.errorCode != 0) {
+                    Timber.w("AMap one-shot location failed: code=${result.errorCode}, info=${result.errorInfo}")
+                    client.stopLocation()
+                    client.onDestroy()
+                    singleAMapLocationClient = null
+                    return@AMapLocationListener
+                }
+
+                val coordinates = if (result.coordType == AMapLocation.COORD_TYPE_GCJ02) {
+                    AMapCoordinateConverter.toWgs84(result.latitude, result.longitude)
+                } else {
+                    result.latitude to result.longitude
+                }
+                val location = Location(result).apply {
+                    latitude = coordinates.first
+                    longitude = coordinates.second
+                }
+
+                sensorWorkerScope.launch {
+                    if (location.accuracy <= minAccuracy * 2) {
+                        getEnabledServers(singleAccurateLocation).forEach { serverId ->
+                            sendLocationUpdate(location, serverId, LocationUpdateTrigger.SINGLE_ACCURATE_LOCATION)
+                        }
+                    } else {
+                        Timber.w("AMap one-shot location did not meet the requested accuracy: ${location.accuracy}m")
+                    }
+                    client.stopLocation()
+                    client.onDestroy()
+                    if (singleAMapLocationClient === client) singleAMapLocationClient = null
+                }
+            })
+            val option = AMapLocationClientOption().apply {
+                setLocationMode(AMapLocationClientOption.AMapLocationMode.Hight_Accuracy)
+                setOnceLocation(true)
+                setOnceLocationLatest(true)
+                setNeedAddress(false)
+            }
+            client.setLocationOption(option)
+            client.startLocation()
+        } catch (e: Exception) {
+            Timber.e(e, "Unable to request a single AMap location")
+            singleAMapLocationClient?.let { runCatching { it.onDestroy() } }
+            singleAMapLocationClient = null
         }
     }
 
