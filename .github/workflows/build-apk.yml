@@ -36,16 +36,18 @@ jobs:
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
+          if [ -z "$AMAP_API_KEY" ]; then
+            echo "::error::Missing AMAP_API_KEY repository secret"
+            exit 1
+          fi
           if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
             echo "::error::Missing ANDROID_KEYSTORE_BASE64 repository secret"
             exit 1
           fi
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
           test -s "$KEYSTORE_PATH"
-      - name: Update dependency locks
-        run: ./gradlew :app:dependencies --write-locks
       - name: Build full debug APK
-        run: ./gradlew :app:assembleFullDebug
+        run: ./gradlew :app:assembleFullDebug --write-locks
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
