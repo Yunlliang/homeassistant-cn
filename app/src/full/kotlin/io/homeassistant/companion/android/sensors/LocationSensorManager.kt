@@ -1456,9 +1456,10 @@ class LocationSensorManager @Inject constructor(
                     Looper.getMainLooper(),
                 )
         } catch (e: Exception) {
-            Timber.w(e, "Google fused location unavailable; falling back to AMap for single accurate location")
-            requestSingleAMapLocation(minAccuracy)
+            Timber.w(e, "Google fused location unavailable for single accurate location")
         }
+        // Also request one AMap fix: on devices without GMS the fused request may fail asynchronously.
+        requestSingleAMapLocation(minAccuracy)
     }
 
     private fun requestSingleAMapLocation(minAccuracy: Int) {
