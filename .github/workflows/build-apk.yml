@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'README.md'
   schedule:
     # Sync daily at 20:00 UTC (04:00 Beijing Time) with official home-assistant/android
     - cron: '0 20 * * *'
