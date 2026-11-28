@@ -9,6 +9,9 @@ android {
     useLibrary("android.car")
 
     defaultConfig {
+        System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() }?.let {
+            versionName = it
+        }
         manifestPlaceholders["sentryRelease"] = "$applicationId@$versionName"
         manifestPlaceholders["sentryDsn"] = System.getenv("SENTRY_DSN") ?: ""
         manifestPlaceholders["amapApiKey"] = System.getenv("AMAP_API_KEY") ?: ""
