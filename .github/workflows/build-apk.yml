@@ -50,12 +50,13 @@ jobs:
           fi
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
           test -s "$KEYSTORE_PATH"
-      - name: Build full debug APK
-        run: ./gradlew :app:assembleFullDebug --write-locks
+          echo "VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+      - name: Build full release APK
+        run: ./gradlew :app:assembleFullRelease --write-locks
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: home-assistant-cn-amap-full-debug-apk
-          path: app/build/outputs/apk/full/debug/*.apk
+          name: home-assistant-cn-amap-full-release-apk
+          path: app/build/outputs/apk/full/release/*.apk
           if-no-files-found: error
           retention-days: 14

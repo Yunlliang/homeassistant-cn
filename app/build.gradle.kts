@@ -25,8 +25,6 @@ android {
 
     buildTypes {
         debug {
-            // Use the persistent project signing key so the AMap SHA1 remains stable across CI builds.
-            signingConfig = signingConfigs.getByName("release")
             // Required for HWASan wrap.sh to be included uncompressed in the APK
             // See https://developer.android.com/ndk/guides/hwasan
             packaging {

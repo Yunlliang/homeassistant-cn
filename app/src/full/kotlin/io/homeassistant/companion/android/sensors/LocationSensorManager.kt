@@ -745,52 +745,54 @@ class LocationSensorManager @Inject constructor(
             AMapLocationClientOption.setLocationProtocol(AMapLocationClientOption.AMapLocationProtocol.HTTPS)
 
             val client = amapLocationClient ?: AMapLocationClient(applicationContext).also { created ->
-                created.setLocationListener(AMapLocationListener { result ->
-                    if (result == null) return@AMapLocationListener
-                    if (result.errorCode != 0) {
-                        Timber.w("AMap location failed: code=${result.errorCode}, info=${result.errorInfo}")
-                        return@AMapLocationListener
-                    }
-
-                    val coordinates = if (result.coordType == AMapLocation.COORD_TYPE_GCJ02) {
-                        AMapCoordinateConverter.toWgs84(result.latitude, result.longitude)
-                    } else {
-                        result.latitude to result.longitude
-                    }
-                    val location = Location(result).apply {
-                        latitude = coordinates.first
-                        longitude = coordinates.second
-                    }
-
-                    sensorWorkerScope.launch {
-                        val serverIds = getEnabledServers(backgroundLocation)
-                        val now = System.currentTimeMillis()
-                        serverIds.forEach { lastLocationReceived[it] = now }
-                        val minAccuracy = getNumberSetting(backgroundLocation, SETTING_ACCURACY)
-                        val trigger = if (highAccuracyModeEnabled) {
-                            LocationUpdateTrigger.HIGH_ACCURACY_LOCATION
-                        } else {
-                            LocationUpdateTrigger.BACKGROUND_LOCATION
+                created.setLocationListener(
+                    AMapLocationListener { result ->
+                        if (result == null) return@AMapLocationListener
+                        if (result.errorCode != 0) {
+                            Timber.w("AMap location failed: code=${result.errorCode}, info=${result.errorInfo}")
+                            return@AMapLocationListener
                         }
 
-                        if (location.accuracy > minAccuracy) {
-                            Timber.d("AMap location accuracy ${location.accuracy}m is below the required threshold")
-                            logLocationUpdate(
-                                location,
-                                null,
-                                null,
-                                trigger,
-                                LocationHistoryItemResult.SKIPPED_ACCURACY,
-                            )
+                        val coordinates = if (result.coordType == AMapLocation.COORD_TYPE_GCJ02) {
+                            AMapCoordinateConverter.toWgs84(result.latitude, result.longitude)
                         } else {
-                            Timber.d("Received an AMap location update (accuracy=${location.accuracy}m)")
-                            HighAccuracyLocationService.updateNotificationAddress(applicationContext, location)
-                            serverIds.forEach { serverId ->
-                                sendLocationUpdate(location, serverId, trigger)
+                            result.latitude to result.longitude
+                        }
+                        val location = Location(result).apply {
+                            latitude = coordinates.first
+                            longitude = coordinates.second
+                        }
+
+                        sensorWorkerScope.launch {
+                            val serverIds = getEnabledServers(backgroundLocation)
+                            val now = System.currentTimeMillis()
+                            serverIds.forEach { lastLocationReceived[it] = now }
+                            val minAccuracy = getNumberSetting(backgroundLocation, SETTING_ACCURACY)
+                            val trigger = if (highAccuracyModeEnabled) {
+                                LocationUpdateTrigger.HIGH_ACCURACY_LOCATION
+                            } else {
+                                LocationUpdateTrigger.BACKGROUND_LOCATION
+                            }
+
+                            if (location.accuracy > minAccuracy) {
+                                Timber.d("AMap location accuracy ${location.accuracy}m is below the required threshold")
+                                logLocationUpdate(
+                                    location,
+                                    null,
+                                    null,
+                                    trigger,
+                                    LocationHistoryItemResult.SKIPPED_ACCURACY,
+                                )
+                            } else {
+                                Timber.d("Received an AMap location update (accuracy=${location.accuracy}m)")
+                                HighAccuracyLocationService.updateNotificationAddress(applicationContext, location)
+                                serverIds.forEach { serverId ->
+                                    sendLocationUpdate(location, serverId, trigger)
+                                }
                             }
                         }
-                    }
-                })
+                    },
+                )
                 amapLocationClient = created
             }
 
@@ -1472,39 +1474,47 @@ class LocationSensorManager @Inject constructor(
             singleAMapLocationClient?.onDestroy()
             val client = AMapLocationClient(applicationContext)
             singleAMapLocationClient = client
-            client.setLocationListener(AMapLocationListener { result ->
-                if (result == null) return@AMapLocationListener
-                if (result.errorCode != 0) {
-                    Timber.w("AMap one-shot location failed: code=${result.errorCode}, info=${result.errorInfo}")
-                    client.stopLocation()
-                    client.onDestroy()
-                    singleAMapLocationClient = null
-                    return@AMapLocationListener
-                }
-
-                val coordinates = if (result.coordType == AMapLocation.COORD_TYPE_GCJ02) {
-                    AMapCoordinateConverter.toWgs84(result.latitude, result.longitude)
-                } else {
-                    result.latitude to result.longitude
-                }
-                val location = Location(result).apply {
-                    latitude = coordinates.first
-                    longitude = coordinates.second
-                }
-
-                sensorWorkerScope.launch {
-                    if (location.accuracy <= minAccuracy * 2) {
-                        getEnabledServers(singleAccurateLocation).forEach { serverId ->
-                            sendLocationUpdate(location, serverId, LocationUpdateTrigger.SINGLE_ACCURATE_LOCATION)
-                        }
-                    } else {
-                        Timber.w("AMap one-shot location did not meet the requested accuracy: ${location.accuracy}m")
+            client.setLocationListener(
+                AMapLocationListener { result ->
+                    if (result == null) return@AMapLocationListener
+                    if (result.errorCode != 0) {
+                        Timber.w("AMap one-shot location failed: code=${result.errorCode}, info=${result.errorInfo}")
+                        client.stopLocation()
+                        client.onDestroy()
+                        singleAMapLocationClient = null
+                        return@AMapLocationListener
                     }
-                    client.stopLocation()
-                    client.onDestroy()
-                    if (singleAMapLocationClient === client) singleAMapLocationClient = null
-                }
-            })
+
+                    val coordinates = if (result.coordType == AMapLocation.COORD_TYPE_GCJ02) {
+                        AMapCoordinateConverter.toWgs84(result.latitude, result.longitude)
+                    } else {
+                        result.latitude to result.longitude
+                    }
+                    val location = Location(result).apply {
+                        latitude = coordinates.first
+                        longitude = coordinates.second
+                    }
+
+                    sensorWorkerScope.launch {
+                        if (location.accuracy <= minAccuracy * 2) {
+                            getEnabledServers(singleAccurateLocation).forEach { serverId ->
+                                sendLocationUpdate(
+                                    location,
+                                    serverId,
+                                    LocationUpdateTrigger.SINGLE_ACCURATE_LOCATION,
+                                )
+                            }
+                        } else {
+                            Timber.w(
+                                "AMap one-shot location did not meet the requested accuracy: ${location.accuracy}m",
+                            )
+                        }
+                        client.stopLocation()
+                        client.onDestroy()
+                        if (singleAMapLocationClient === client) singleAMapLocationClient = null
+                    }
+                },
+            )
             val option = AMapLocationClientOption().apply {
                 setLocationMode(AMapLocationClientOption.AMapLocationMode.Hight_Accuracy)
                 setOnceLocation(true)
