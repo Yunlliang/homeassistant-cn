@@ -11,6 +11,7 @@ android {
     defaultConfig {
         manifestPlaceholders["sentryRelease"] = "$applicationId@$versionName"
         manifestPlaceholders["sentryDsn"] = System.getenv("SENTRY_DSN") ?: ""
+        manifestPlaceholders["amapApiKey"] = System.getenv("AMAP_API_KEY") ?: ""
 
         testInstrumentationRunner = "io.homeassistant.companion.android.util.HAAndroidJUnitRunner"
 
@@ -50,5 +51,7 @@ aboutLibraries {
 dependencies {
     // Most of the dependencies are coming from the convention plugin to avoid duplication with `:automotive` module.
     "fullImplementation"(libs.car.projected)
+    // AMap Location SDK for mainland-China devices without Google Play Services.
+    "fullImplementation"("com.amap.api:location:11.3.000")
     ksp(project(":provides-sensor-processor"))
 }

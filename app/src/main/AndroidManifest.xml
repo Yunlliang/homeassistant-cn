@@ -6,6 +6,9 @@
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.BLUETOOTH"
@@ -106,6 +109,15 @@
         android:intentMatchingFlags="enforceIntentFilter"
         tools:ignore="GoogleAppIndexingWarning,UnusedAttribute"
         tools:targetApi="tiramisu">
+
+        <!-- AMap Location SDK key is injected from the AMAP_API_KEY CI secret. -->
+        <meta-data
+            android:name="com.amap.api.v2.apikey"
+            android:value="${amapApiKey}" />
+        <service
+            android:name="com.amap.api.location.APSService"
+            android:enabled="true"
+            android:exported="false" />
 
         <!--
         WARNING: Do not change the fully qualified name of this activity.
