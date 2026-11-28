@@ -155,8 +155,8 @@ jobs:
           cp "$APK_SRC" "$APK_NAMED"
           NOTES="同步官方版本 **${OFFICIAL_VERSION}**（主分支内置高德定位 + 原生 GPS 回退，正式版包名 \`io.homeassistant.companion.android\`，versionName \`${OFFICIAL_VERSION}-full\`，versionCode \`${VERSION_CODE}\`）。"
           if gh release view "$OFFICIAL_VERSION" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$OFFICIAL_VERSION" "$APK_SRC" "$APK_NAMED" -R "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$OFFICIAL_VERSION" "$APK_NAMED" -R "$GITHUB_REPOSITORY" --clobber
             gh release edit "$OFFICIAL_VERSION" -R "$GITHUB_REPOSITORY" --title "$OFFICIAL_VERSION" --notes "$NOTES"
           else
-            gh release create "$OFFICIAL_VERSION" "$APK_SRC" "$APK_NAMED" -R "$GITHUB_REPOSITORY" --title "$OFFICIAL_VERSION" --notes "$NOTES"
+            gh release create "$OFFICIAL_VERSION" "$APK_NAMED" -R "$GITHUB_REPOSITORY" --title "$OFFICIAL_VERSION" --notes "$NOTES"
           fi
